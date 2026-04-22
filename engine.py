@@ -579,7 +579,7 @@ class HarmonyEngine(Engine):
         # Build a dictionary mapping app instance names to dictionaries of
         # commands they registered with the engine.
         app_instance_commands = {}
-        for (cmd_name, value) in self.commands.iteritems():
+        for (cmd_name, value) in self.commands.items():
             app_instance = value["properties"].get("app")
             if app_instance:
                 # Add entry 'command name: command function' to the command
@@ -609,7 +609,7 @@ class HarmonyEngine(Engine):
             else:
                 if not setting_cmd_name:
                     # Run all commands of the given app instance.
-                    for (cmd_name, command_function) in cmd_dict.iteritems():
+                    for (cmd_name, command_function) in cmd_dict.items():
                         msg = (
                             "%s startup running app '%s' command '%s'.",
                             self.name,
