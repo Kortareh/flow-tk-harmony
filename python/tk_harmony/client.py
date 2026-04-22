@@ -174,15 +174,15 @@ class QTcpSocketClient(QtCore.QObject):
                 self._block_size > 0 and self.connection.bytesAvailable() >= self._block_size
             ):
                 self._block_size = stream.readInt32()
-                # logger.debug(
-                #     "Reading data size for request %s in queue: %s"
-                #     % (i, self._block_size)
-                # )
 
             if self._block_size > 0 and self.connection.bytesAvailable() >= self._block_size:
                 data = stream.readRawData(self._block_size)
-                request = QtCore.QTextCodec.codecForMib(106).toUnicode(data)
-                # logger.debug("About to process request %s in queue: %s" % (i, request))
+
+                if isinstance(data, str):
+                    request = data
+                else:
+                    request = bytes(data).decode("utf-8", errors="replace")
+
                 self._process_request(request)
                 self._block_size = 0
                 i += 1
