@@ -49,16 +49,17 @@ class MenuGenerator(object):
         self.menu_handle.hide()
 
     def show(self, pos=None):
-        pos = QtGui.QCursor.pos() if pos is None else QtCore.QPoint(pos[0], pos[1])
-
         qApp = QtGui.QApplication.instance()
+
+        cursor_pos = QtGui.QCursor.pos()
+        self.logger.debug("Menu show requested. incoming_pos=%s cursor_pos=%s" % (pos, cursor_pos))
 
         self.menu_handle.activateWindow()
         self.menu_handle.raise_()
 
         qApp.processEvents()
 
-        self.menu_handle.exec_(pos)
+        self.menu_handle.popup(cursor_pos)
 
     def create_menu(self, disabled=False):
         """
