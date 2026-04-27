@@ -48,24 +48,24 @@ class MenuGenerator(object):
     def hide(self):
         self.menu_handle.hide()
 
-def show(self, pos=None):
-    qApp = QtGui.QApplication.instance()
-    cursor_pos = QtGui.QCursor.pos()
+    def show(self, pos=None):
+        qApp = QtGui.QApplication.instance()
+        cursor_pos = QtGui.QCursor.pos()
 
-    self.logger.debug("MenuGenerator.show ENTER pos=%s cursor=%s" % (pos, cursor_pos))
+        self.logger.debug("MenuGenerator.show ENTER pos=%s cursor=%s" % (pos, cursor_pos))
 
-    self.menu_handle.activateWindow()
-    self.menu_handle.raise_()
+        self.menu_handle.activateWindow()
+        self.menu_handle.raise_()
 
-    qApp.processEvents()
+        qApp.processEvents()
 
-    self.logger.debug("MenuGenerator.show BEFORE popup")
-    self.menu_handle.popup(cursor_pos)
-    qApp.processEvents()
-    self.logger.debug("MenuGenerator.show AFTER popup visible=%s actions=%s" % (
-        self.menu_handle.isVisible(),
-        len(self.menu_handle.actions())
-    ))
+        self.logger.debug("MenuGenerator.show BEFORE popup")
+        self.menu_handle.popup(cursor_pos)
+        qApp.processEvents()
+        self.logger.debug(
+            "MenuGenerator.show AFTER popup visible=%s actions=%s"
+            % (self.menu_handle.isVisible(), len(self.menu_handle.actions()))
+        )
 
     def create_menu(self, disabled=False):
         """
@@ -124,7 +124,7 @@ def show(self, pos=None):
                 if app_name is None:
                     # un-parented app
                     app_name = "Other Items"
-                if not app_name in commands_by_app:
+                if app_name not in commands_by_app:
                     commands_by_app[app_name] = []
                 commands_by_app[app_name].append(cmd)
 
