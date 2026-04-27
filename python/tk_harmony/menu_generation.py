@@ -156,7 +156,7 @@ class MenuGenerator(object):
         if properties:
             if "tooltip" in properties:
                 action.setTooltip(properties["tooltip"])
-                action.setStatustip(properties["tooltip"])
+                action.setStatusTip(properties["tooltip"])
             if "enable_callback" in properties:
                 action.setEnabled(properties["enable_callback"]())
             if "icon" in properties:
@@ -294,8 +294,8 @@ class AppCommand(object):
         if "app" in self.properties:
             app = self.properties["app"]
             doc_url = app.documentation_url
-            if doc_url.__class__ == unicode:
-                doc_url = unicodedata.normalize("NFKD", doc_url).encode("ascii", "ignore")
+            if isinstance(doc_url, str):
+                doc_url = unicodedata.normalize("NFKD", doc_url)
             return doc_url
 
         return None
