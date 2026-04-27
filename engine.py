@@ -738,8 +738,6 @@ class HarmonyEngine(Engine):
         # to initialize.
         self.logger.debug("on_show_menu called.")
 
-        self.warn_dcc_app_version()
-
         menu_position = None
         clicked_info = kwargs.get("clickedPosition")
         if clicked_info:
