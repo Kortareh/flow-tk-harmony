@@ -736,15 +736,7 @@ class HarmonyEngine(Engine):
         # the engine config says so. We do it here as we try to avoid
         # deffer querying the dcc app to the last minute, to give it time
         # to initialize.
-        self.logger.debug("on_show_menu called.")
-
-        menu_position = None
-        clicked_info = kwargs.get("clickedPosition")
-        if clicked_info:
-            menu_position = [clicked_info["x"], clicked_info["y"]]
-
-        self.logger.debug("on_show_menu | menu_position %s" % menu_position)
-        self.display_menu(pos=menu_position)
+        self.display_menu()
 
     def on_new_project_created(self, **kwargs):
         path = kwargs.get("path")
