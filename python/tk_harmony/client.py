@@ -130,7 +130,7 @@ class QTcpSocketClient(QtCore.QObject):
         self.connection.setSocketOption(self.connection.LowDelayOption, 1)
         self.connection.setSocketOption(self.connection.KeepAliveOption, 1)
 
-        self.connection.readyRead.connect(self._on_ready_read)
+        self.connection.readyRead.connect(self._on_readyRead)
         self.connection.error.connect(self._on_error)
         self.connection.bytesWritten.connect(self._on_bytes_written)
         self.connection.stateChanged.connect(self._on_state_changed)

@@ -159,7 +159,7 @@ class Application(QTcpSocketClient):
             fields["extension"] = "xstage"
 
         ctx_fields = context.as_template_fields(work_template, validate=True)
-        fields = dict(chain(fields.iteritems(), ctx_fields.iteritems()))
+        fields = dict(chain(fields.items(), ctx_fields.items()))
 
         destination_path = None
         # very cheap way to get the next available version
