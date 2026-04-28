@@ -124,8 +124,8 @@ class QTcpSocketClient(QtCore.QObject):
         logger.debug("Connection: %s" % self.connection)
 
         logger.debug("Setting up callbacks...")
-        self.connection.setSocketOption(self.connection.LowDelayOption, 1)
-        self.connection.setSocketOption(self.connection.KeepAliveOption, 1)
+        self._set_socket_option("LowDelayOption", 1)
+        self._set_socket_option("KeepAliveOption", 1)
 
         self.connection.readyRead.connect(self._on_ready_read)
         self.connection.error.connect(self._on_error)
@@ -133,6 +133,21 @@ class QTcpSocketClient(QtCore.QObject):
         self.connection.stateChanged.connect(self._on_state_changed)
 
         logger.debug("Setting up callbacks... Done.")
+
+    def _set_socket_option(self, option_name, value):
+        option = getattr(self.connection, option_name, None)
+        if option is None:
+            socket_option_enum = getattr(QtNetwork.QAbstractSocket, "SocketOption", None)
+            if socket_option_enum is not None:
+                option = getattr(socket_option_enum, option_name, None)
+        if option is None:
+            option = getattr(QtNetwork.QAbstractSocket, option_name, None)
+
+        if option is None:
+            logger.debug("Socket option %s is not available in this Qt binding.", option_name)
+            return
+
+        self.connection.setSocketOption(option, value)
 
     def _send(self, request):
         # make sure we are connected

@@ -22,6 +22,36 @@ __author__ = "Diego Garcia Huerta"
 __contact__ = "https://www.linkedin.com/in/diegogh/"
 
 
+_LOG_STREAM = None
+
+
+def install_process_logging():
+    """
+    Capture output from the detached Python process.
+    """
+    global _LOG_STREAM
+
+    if _LOG_STREAM:
+        return
+
+    log_root = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Shotgun", "Logs")
+    try:
+        if not os.path.exists(log_root):
+            os.makedirs(log_root)
+
+        log_path = os.path.join(log_root, "tk-harmony.log")
+        _LOG_STREAM = open(log_path, "a", buffering=1)
+        sys.stdout = _LOG_STREAM
+        sys.stderr = _LOG_STREAM
+        print("\n--- tk-harmony bootstrap starting ---")
+    except Exception:
+        _LOG_STREAM = None
+
+
+def log_uncaught_exception(exc_type, exc_value, exc_traceback):
+    traceback.print_exception(exc_type, exc_value, exc_traceback)
+
+
 def display_error(msg, logger=None):
     if logger:
         logger.error("Shotgun Error | Harmony engine | %s " % msg)
@@ -148,5 +178,7 @@ def setup_environment():
 
 if __name__ == "__main__":
     # Fire up Toolkit and the environment engine when there's time.
+    install_process_logging()
+    sys.excepthook = log_uncaught_exception
     setup_environment()
     start_toolkit()

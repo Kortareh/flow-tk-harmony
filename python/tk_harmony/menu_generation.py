@@ -50,20 +50,27 @@ class MenuGenerator(object):
 
     def show(self, pos=None):
         qApp = QtGui.QApplication.instance()
-        cursor_pos = QtGui.QCursor.pos()
 
-        self.logger.debug("MenuGenerator.show ENTER pos=%s cursor=%s" % (pos, cursor_pos))
+        if isinstance(pos, dict) and "x" in pos and "y" in pos:
+            menu_pos = QtCore.QPoint(int(pos["x"]), int(pos["y"]))
+        else:
+            menu_pos = QtGui.QCursor.pos()
+
+        self.logger.info(
+            "MenuGenerator.show ENTER pos=%s menu_pos=%s actions=%s"
+            % (pos, menu_pos, len(self.menu_handle.actions()))
+        )
 
         self.menu_handle.activateWindow()
         self.menu_handle.raise_()
 
         qApp.processEvents()
 
-        self.logger.debug("MenuGenerator.show BEFORE popup")
-        self.menu_handle.popup(cursor_pos)
+        self.logger.info("MenuGenerator.show BEFORE exec_")
+        self.menu_handle.exec_(menu_pos)
         qApp.processEvents()
-        self.logger.debug(
-            "MenuGenerator.show AFTER popup visible=%s actions=%s"
+        self.logger.info(
+            "MenuGenerator.show AFTER exec_ visible=%s actions=%s"
             % (self.menu_handle.isVisible(), len(self.menu_handle.actions()))
         )
 
