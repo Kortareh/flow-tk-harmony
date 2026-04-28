@@ -130,8 +130,18 @@ def start_toolkit():
 
 
 def setup_environment():
-    SGTK_HARMONY_MODULE_PATH = os.environ["SGTK_HARMONY_MODULE_PATH"]
-
+    # Try to get the module path from environment, fall back to sgtk import
+    SGTK_HARMONY_MODULE_PATH = os.environ.get("SGTK_HARMONY_MODULE_PATH")
+    
+    if not SGTK_HARMONY_MODULE_PATH:
+        # If not provided, try to import sgtk and get its path
+        try:
+            import sgtk
+            SGTK_HARMONY_MODULE_PATH = os.path.dirname(sgtk.__file__)
+        except ImportError:
+            # Last resort: assume sgtk is in standard Python path
+            SGTK_HARMONY_MODULE_PATH = None
+    
     if SGTK_HARMONY_MODULE_PATH and SGTK_HARMONY_MODULE_PATH not in sys.path:
         sys.path.insert(0, SGTK_HARMONY_MODULE_PATH)
 
