@@ -13,6 +13,11 @@ import os
 import sgtk
 from sgtk.util.filesystem import ensure_folder_exists
 
+try:
+    _unicode_type = unicode
+except NameError:
+    _unicode_type = ()
+
 
 __author__ = "Diego Garcia Huerta"
 __contact__ = "https://www.linkedin.com/in/diegogh/"
@@ -279,7 +284,7 @@ def _session_path():
     # get the path to the current file
     path = engine.app.get_current_project_path()
 
-    if isinstance(path, unicode):
+    if isinstance(path, _unicode_type):
         path = path.encode("utf-8")
 
     return path
