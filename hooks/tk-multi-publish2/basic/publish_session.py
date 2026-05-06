@@ -13,6 +13,7 @@ import glob
 import shutil
 import fnmatch
 import traceback
+import sys
 
 import sgtk
 from sgtk.util.filesystem import ensure_folder_exists
@@ -227,7 +228,7 @@ class HarmonySessionPublishPlugin(HookBaseClass):
         # get the path in a normalized state. no trailing separator,
         # separators are appropriate for current os, no double separators,
         # etc.
-        path = sgtk.util.ShotgunPath.normalize(path)
+        path = _to_storage_root_path(sgtk.util.ShotgunPath.normalize(path), publisher.sgtk)
 
         # if the session item has a known work template, see if the path
         # matches. if not, warn the user and provide a way to save the file to
@@ -294,9 +295,23 @@ class HarmonySessionPublishPlugin(HookBaseClass):
         # validation
         # step. NOTE: this path could change prior to the publish phase.
         item.properties["path"] = path
+        item.properties["publish_path"] = self.get_publish_path(settings, item)
 
-        # run the base class validation
-        return super(HarmonySessionPublishPlugin, self).validate(settings, item)
+        # The base file publisher rejects existing publishes when templates
+        # are present. Harmony sessions support re-publishing the same path,
+        # so hide template markers during validation only; the base hook will
+        # still warn about conflicts and the real templates are restored for
+        # publish/finalize.
+        template_properties = {}
+        for key in ("work_template", "publish_template"):
+            if key in item.properties:
+                template_properties[key] = item.properties[key]
+                del item.properties[key]
+
+        try:
+            return super(HarmonySessionPublishPlugin, self).validate(settings, item)
+        finally:
+            item.properties.update(template_properties)
 
     def publish(self, settings, item):
         """
@@ -310,13 +325,18 @@ class HarmonySessionPublishPlugin(HookBaseClass):
 
         # get the path in a normalized state. no trailing separator, separators
         # are appropriate for current os, no double separators, etc.
-        path = sgtk.util.ShotgunPath.normalize(_session_path())
+        source_path = sgtk.util.ShotgunPath.normalize(_session_path())
+        path = _to_storage_root_path(source_path, self.parent.sgtk)
 
         # ensure the session is saved
         _save_session()
 
         # update the item with the saved session path
         item.properties["path"] = path
+        item.properties["harmony_source_path"] = source_path
+        if "publish_path" in item.properties:
+            del item.properties["publish_path"]
+        item.properties["publish_path"] = self.get_publish_path(settings, item)
 
         # add dependencies for the base class to register when publishing
         item.properties[
@@ -325,7 +345,9 @@ class HarmonySessionPublishPlugin(HookBaseClass):
 
         # let the base class register the publish
         super(HarmonySessionPublishPlugin, self).publish(settings, item)
-        item.properties.sg_publish_path = item.properties.sg_publish_data["path"]["local_path"]
+        item.properties.sg_publish_path = _get_publish_local_path(
+            item.properties.sg_publish_data, path
+        )
 
     def finalize(self, settings, item):
         """
@@ -342,7 +364,16 @@ class HarmonySessionPublishPlugin(HookBaseClass):
         super(HarmonySessionPublishPlugin, self).finalize(settings, item)
 
         # bump the session file to the next version
-        self._save_to_next_version(item.properties["path"], item, _save_session)
+        def save_next_version(path):
+            source_path = item.properties.get("harmony_source_path")
+            physical_path = _to_physical_path(
+                path,
+                item.properties["path"],
+                source_path,
+            )
+            _save_session(physical_path)
+
+        self._save_to_next_version(item.properties["path"], item, save_next_version)
 
     def _copy_work_to_publish(self, settings, item):
         """
@@ -389,31 +420,94 @@ class HarmonySessionPublishPlugin(HookBaseClass):
 
         # by default, the path that was collected for publishing
         work_file = item.properties.path
+        source_file = item.properties.get("harmony_source_path") or work_file
 
         # ---- copy the work files to the publish location
-        if not work_template.validate(work_file):
+        publish_file = self._get_harmony_publish_path(settings, item, work_file)
+        if not publish_file:
             self.logger.warning(
-                "Work file '%s' did not match work template '%s'. "
-                "Publishing in place." % (work_file, work_template)
+                "Could not resolve a publish path for work file '%s'. "
+                "Publishing in place." % (work_file,)
             )
             return
 
-        work_fields = work_template.get_fields(work_file)
+        self.logger.info("Copying Harmony project to publish location:")
+        self.logger.info("  %s" % (publish_file,))
+        physical_publish_file = _to_physical_path(publish_file, work_file, source_file)
+        return dcc_app.save_project_as(
+            source_file=source_file, target_file=physical_publish_file, open_project=False
+        )
 
-        missing_keys = publish_template.missing_keys(work_fields)
+    def get_publish_path(self, settings, item):
+        """
+        Return the Harmony publish path.
 
+        Harmony projects can be valid Toolkit work files even when the path
+        returned by Harmony does not validate against the configured work
+        template. In that case, use the current context plus the version in the
+        work filename to resolve the publish template instead of publishing in
+        place.
+        """
+
+        path = item.get_property("path")
+        publish_template = self.get_publish_template(settings, item)
+
+        if path and publish_template:
+            publish_path = self._get_harmony_publish_path(settings, item, path)
+            if publish_path:
+                return publish_path
+
+        return super(HarmonySessionPublishPlugin, self).get_publish_path(settings, item)
+
+    def _get_harmony_publish_path(self, settings, item, path):
+        """
+        Resolve a publish path from the work template or the item context.
+        """
+
+        publisher = self.parent
+        work_template = item.properties.get("work_template")
+        publish_template = self.get_publish_template(settings, item)
+
+        if not publish_template:
+            return None
+
+        if work_template and work_template.validate(path):
+            fields = work_template.get_fields(path)
+        else:
+            if work_template:
+                self.logger.debug(
+                    "Work file '%s' did not match work template '%s'. "
+                    "Resolving publish path from context." % (path, work_template)
+                )
+
+            try:
+                fields = item.context.as_template_fields(publish_template, validate=True)
+            except sgtk.TankError:
+                ctx_entity = item.context.task or item.context.entity or item.context.project
+                if ctx_entity:
+                    publisher.sgtk.create_filesystem_structure(
+                        ctx_entity["type"], ctx_entity["id"]
+                    )
+                fields = item.context.as_template_fields(publish_template, validate=True)
+
+            if "version" in publish_template.keys and "version" not in fields:
+                version = publisher.util.get_version_number(path)
+                if version is not None:
+                    fields["version"] = version
+
+        missing_keys = publish_template.missing_keys(fields)
         if missing_keys:
             self.logger.warning(
                 "Work file '%s' missing keys required for the publish "
-                "template: %s" % (work_file, missing_keys)
+                "template: %s" % (path, missing_keys)
             )
-            return
+            return None
 
-        publish_file = publish_template.apply_fields(work_fields)
-
-        return dcc_app.save_project_as(
-            source_file=work_file, target_file=publish_file, open_project=False
+        publish_path = publish_template.apply_fields(fields)
+        self.logger.debug(
+            "Resolved Harmony publish path: %s" % (publish_path,)
         )
+        return publish_path
 
 
 def _harmony_find_additional_session_dependencies():
@@ -422,6 +516,120 @@ def _harmony_find_additional_session_dependencies():
     """
 
     return []
+
+
+def _get_publish_local_path(sg_publish_data, fallback_path=None):
+    """
+    Return a local filesystem path from a ShotGrid publish path dictionary.
+    """
+
+    path_data = sg_publish_data.get("path") or {}
+    if not isinstance(path_data, dict):
+        return fallback_path
+
+    local_path = path_data.get("local_path")
+    if local_path:
+        return local_path
+
+    platform_keys = {
+        "win32": "local_path_windows",
+        "darwin": "local_path_mac",
+        "linux2": "local_path_linux",
+        "linux": "local_path_linux",
+    }
+
+    local_path = path_data.get(platform_keys.get(sys.platform))
+    if local_path:
+        return local_path
+
+    for key in ("local_path_windows", "local_path_mac", "local_path_linux"):
+        local_path = path_data.get(key)
+        if local_path:
+            return local_path
+
+    return fallback_path
+
+
+def _to_storage_root_path(path, tk=None):
+    """
+    Convert Harmony's resolved path back to the configured Toolkit root path.
+
+    Harmony can report a subst drive path as its real filesystem location, for
+    example a OneDrive user folder. Toolkit templates and publishes should use
+    the configured storage root instead.
+    """
+
+    if not path or not tk:
+        return path
+
+    try:
+        storage_roots = tk.pipeline_configuration.get_data_roots()
+    except Exception:
+        return path
+
+    try:
+        project_disk_name = tk.pipeline_configuration.get_project_disk_name()
+    except Exception:
+        project_disk_name = None
+
+    normalized_path = sgtk.util.ShotgunPath.normalize(path)
+    path_lower = normalized_path.lower()
+
+    for root_path in storage_roots.values():
+        if not root_path:
+            continue
+
+        root_path = sgtk.util.ShotgunPath.normalize(root_path)
+        root_lower = root_path.lower().rstrip("\\/")
+
+        if path_lower == root_lower or path_lower.startswith(root_lower + os.path.sep):
+            return normalized_path
+
+        if project_disk_name:
+            project_marker = os.path.sep + project_disk_name.lower() + os.path.sep
+            marker_index = path_lower.find(project_marker)
+            if marker_index != -1:
+                relative_path = normalized_path[marker_index + 1 :]
+                return sgtk.util.ShotgunPath.normalize(
+                    os.path.join(root_path, relative_path)
+                )
+
+    return normalized_path
+
+
+def _to_physical_path(path, reference_storage_path, reference_physical_path):
+    """
+    Convert a Toolkit-root path back to the physical path Harmony can access.
+    """
+
+    if not path or not reference_storage_path or not reference_physical_path:
+        return path
+
+    normalized_path = sgtk.util.ShotgunPath.normalize(path)
+    storage_path = sgtk.util.ShotgunPath.normalize(reference_storage_path)
+    physical_path = sgtk.util.ShotgunPath.normalize(reference_physical_path)
+
+    storage_path_lower = storage_path.lower()
+    physical_path_lower = physical_path.lower()
+
+    marker = None
+    for storage_part in storage_path.split(os.path.sep):
+        if storage_part and ("%s%s" % (os.path.sep, storage_part.lower(), os.path.sep)) in physical_path_lower:
+            marker = os.path.sep + storage_part.lower() + os.path.sep
+            break
+
+    if marker:
+        storage_index = storage_path_lower.find(marker)
+        physical_index = physical_path_lower.find(marker)
+        target_index = normalized_path.lower().find(marker)
+        if storage_index != -1 and physical_index != -1 and target_index != -1:
+            physical_root = physical_path[: physical_index + 1]
+            relative_path = normalized_path[target_index + 1 :]
+            return sgtk.util.ShotgunPath.normalize(
+                os.path.join(physical_root, relative_path)
+            )
+
+    return normalized_path
 
 
 def _session_path():
