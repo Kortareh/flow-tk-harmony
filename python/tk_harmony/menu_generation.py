@@ -18,6 +18,10 @@ import sys
 import os
 import unicodedata
 
+if sys.platform == "win32":
+    import ctypes
+    import ctypes.wintypes
+
 
 __author__ = "Diego Garcia Huerta"
 __contact__ = "https://www.linkedin.com/in/diegogh/"
@@ -40,16 +44,25 @@ class MenuGenerator(object):
         self._handle = QtGui.QMenu(self._menu_name, self._widget)
         self._ui_cache = []
         self.logger = self._engine.logger
+        self._outside_click_timer = QtCore.QTimer(self._widget)
+        self._outside_click_timer.setInterval(50)
+        self._outside_click_timer.timeout.connect(self._hide_on_outside_click)
+        self._left_button_was_down = False
 
     @property
     def menu_handle(self):
         return self._handle
 
     def hide(self):
+        self._outside_click_timer.stop()
         self.menu_handle.hide()
 
     def show(self, pos=None):
         qApp = QtGui.QApplication.instance()
+
+        if self.menu_handle.isVisible():
+            self.hide()
+            return
 
         if isinstance(pos, dict) and "x" in pos and "y" in pos:
             menu_pos = QtCore.QPoint(int(pos["x"]), int(pos["y"]))
@@ -66,13 +79,66 @@ class MenuGenerator(object):
 
         qApp.processEvents()
 
-        self.logger.info("MenuGenerator.show BEFORE exec_")
-        self.menu_handle.exec_(menu_pos)
+        self.logger.info("MenuGenerator.show BEFORE popup")
+        self.menu_handle.popup(menu_pos)
+        QtCore.QTimer.singleShot(250, self._start_outside_click_timer)
         qApp.processEvents()
         self.logger.info(
-            "MenuGenerator.show AFTER exec_ visible=%s actions=%s"
+            "MenuGenerator.show AFTER popup visible=%s actions=%s"
             % (self.menu_handle.isVisible(), len(self.menu_handle.actions()))
         )
+
+    def _start_outside_click_timer(self):
+        """
+        Start watching for clicks Harmony does not pass through to the QMenu.
+        """
+
+        if self.menu_handle.isVisible():
+            self._left_button_was_down = self._is_left_mouse_button_down()
+            self._outside_click_timer.start()
+
+    def _hide_on_outside_click(self):
+        """
+        Hide the menu when the mouse is clicked outside its screen geometry.
+        """
+
+        if not self.menu_handle.isVisible():
+            self._outside_click_timer.stop()
+            return
+
+        left_button_is_down = self._is_left_mouse_button_down()
+        if not left_button_is_down:
+            self._left_button_was_down = False
+            return
+
+        if self._left_button_was_down:
+            return
+
+        self._left_button_was_down = True
+        if not self.menu_handle.frameGeometry().contains(self._cursor_pos()):
+            self.hide()
+
+    def _is_left_mouse_button_down(self):
+        """
+        Return the current left mouse button state.
+        """
+
+        if sys.platform == "win32":
+            return bool(ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8000)
+
+        return bool(QtGui.QApplication.mouseButtons() & QtCore.Qt.LeftButton)
+
+    def _cursor_pos(self):
+        """
+        Return the cursor position in global screen coordinates.
+        """
+
+        if sys.platform == "win32":
+            point = ctypes.wintypes.POINT()
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(point))
+            return QtCore.QPoint(point.x, point.y)
+
+        return QtGui.QCursor.pos()
 
     def create_menu(self, disabled=False):
         """
@@ -138,12 +204,6 @@ class MenuGenerator(object):
         # now add all apps to main menu
         self._add_app_menu(commands_by_app)
 
-        # add menu divider
-        self._add_divider(self.menu_handle)
-
-        # add menu divider
-        self._add_menu_item("-- Exit Menu --", self.menu_handle, self.menu_handle.hide)
-
     def _add_divider(self, parent_menu):
         divider = QtGui.QAction(parent_menu)
         divider.setSeparator(True)
@@ -158,7 +218,7 @@ class MenuGenerator(object):
     def _add_menu_item(self, name, parent_menu, callback, properties=None):
         action = QtGui.QAction(name, parent_menu)
         parent_menu.addAction(action)
-        action.triggered.connect(callback)
+        action.triggered.connect(lambda checked=False: self._trigger_menu_item(callback))
 
         if properties:
             if "tooltip" in properties:
@@ -170,6 +230,14 @@ class MenuGenerator(object):
                 action.setIcon(QtGui.QIcon(properties["icon"]))
 
         return action
+
+    def _trigger_menu_item(self, callback):
+        """
+        Hide the Harmony menu before running a command.
+        """
+
+        self.hide()
+        callback()
 
     def _add_context_menu(self):
         """

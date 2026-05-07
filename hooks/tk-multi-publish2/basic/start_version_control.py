@@ -353,7 +353,7 @@ def _to_physical_path(path, reference_storage_path, reference_physical_path):
 
     marker = None
     for storage_part in storage_path.split(os.path.sep):
-        if storage_part and ("%s%s" % (os.path.sep, storage_part.lower(), os.path.sep)) in physical_path_lower:
+        if storage_part and ("%s%s%s" % (os.path.sep, storage_part.lower(), os.path.sep)) in physical_path_lower:
             marker = os.path.sep + storage_part.lower() + os.path.sep
             break
 
