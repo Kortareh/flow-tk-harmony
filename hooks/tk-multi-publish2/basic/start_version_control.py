@@ -13,6 +13,11 @@ import os
 import sgtk
 from sgtk.util.filesystem import ensure_folder_exists
 
+try:
+    _unicode_type = unicode
+except NameError:
+    _unicode_type = ()
+
 
 __author__ = "Diego Garcia Huerta"
 __contact__ = "https://www.linkedin.com/in/diegogh/"
@@ -123,7 +128,8 @@ class HarmonyStartVersionControlPlugin(HookBaseClass):
         :returns: dictionary with boolean keys accepted, required and enabled
         """
 
-        path = _session_path()
+        publisher = self.parent
+        path = _to_storage_root_path(_session_path(), publisher.sgtk)
 
         if path:
             version_number = self._get_version_number(path, item)
@@ -166,7 +172,7 @@ class HarmonyStartVersionControlPlugin(HookBaseClass):
         """
 
         publisher = self.parent
-        path = _session_path()
+        path = _to_storage_root_path(_session_path(), publisher.sgtk)
 
         if not path:
             # the session still requires saving. provide a save button.
@@ -206,16 +212,18 @@ class HarmonyStartVersionControlPlugin(HookBaseClass):
 
         # get the path in a normalized state. no trailing separator, separators
         # are appropriate for current os, no double separators, etc.
-        path = sgtk.util.ShotgunPath.normalize(_session_path())
+        source_path = sgtk.util.ShotgunPath.normalize(_session_path())
+        path = _to_storage_root_path(source_path, publisher.sgtk)
 
         # ensure the session is saved in its current state
-        _save_session(path)
+        _save_session(source_path)
 
         # get the path to a versioned copy of the file.
         version_path = publisher.util.get_version_path(path, "v001")
+        physical_version_path = _to_physical_path(version_path, path, source_path)
 
         # save to the new version path
-        _save_session(version_path)
+        _save_session(physical_version_path)
         self.logger.info("A version number has been added to the Harmony file...")
         self.logger.info("  Harmony file path: %s" % (version_path,))
 
@@ -279,10 +287,88 @@ def _session_path():
     # get the path to the current file
     path = engine.app.get_current_project_path()
 
-    if isinstance(path, unicode):
+    if isinstance(path, _unicode_type):
         path = path.encode("utf-8")
 
     return path
+
+
+def _to_storage_root_path(path, tk=None):
+    """
+    Convert Harmony's resolved path back to the configured Toolkit root path.
+    """
+
+    if not path or not tk:
+        return path
+
+    try:
+        storage_roots = tk.pipeline_configuration.get_data_roots()
+    except Exception:
+        return path
+
+    try:
+        project_disk_name = tk.pipeline_configuration.get_project_disk_name()
+    except Exception:
+        project_disk_name = None
+
+    normalized_path = sgtk.util.ShotgunPath.normalize(path)
+    path_lower = normalized_path.lower()
+
+    for root_path in storage_roots.values():
+        if not root_path:
+            continue
+
+        root_path = sgtk.util.ShotgunPath.normalize(root_path)
+        root_lower = root_path.lower().rstrip("\\/")
+
+        if path_lower == root_lower or path_lower.startswith(root_lower + os.path.sep):
+            return normalized_path
+
+        if project_disk_name:
+            project_marker = os.path.sep + project_disk_name.lower() + os.path.sep
+            marker_index = path_lower.find(project_marker)
+            if marker_index != -1:
+                relative_path = normalized_path[marker_index + 1 :]
+                return sgtk.util.ShotgunPath.normalize(
+                    os.path.join(root_path, relative_path)
+                )
+
+    return normalized_path
+
+
+def _to_physical_path(path, reference_storage_path, reference_physical_path):
+    """
+    Convert a Toolkit-root path back to the physical path Harmony can access.
+    """
+
+    if not path or not reference_storage_path or not reference_physical_path:
+        return path
+
+    normalized_path = sgtk.util.ShotgunPath.normalize(path)
+    storage_path = sgtk.util.ShotgunPath.normalize(reference_storage_path)
+    physical_path = sgtk.util.ShotgunPath.normalize(reference_physical_path)
+
+    storage_path_lower = storage_path.lower()
+    physical_path_lower = physical_path.lower()
+
+    marker = None
+    for storage_part in storage_path.split(os.path.sep):
+        if storage_part and ("%s%s%s" % (os.path.sep, storage_part.lower(), os.path.sep)) in physical_path_lower:
+            marker = os.path.sep + storage_part.lower() + os.path.sep
+            break
+
+    if marker:
+        storage_index = storage_path_lower.find(marker)
+        physical_index = physical_path_lower.find(marker)
+        target_index = normalized_path.lower().find(marker)
+        if storage_index != -1 and physical_index != -1 and target_index != -1:
+            physical_root = physical_path[: physical_index + 1]
+            relative_path = normalized_path[target_index + 1 :]
+            return sgtk.util.ShotgunPath.normalize(
+                os.path.join(physical_root, relative_path)
+            )
+
+    return normalized_path
 
 
 def _save_session(path=None):

@@ -22,6 +22,36 @@ __author__ = "Diego Garcia Huerta"
 __contact__ = "https://www.linkedin.com/in/diegogh/"
 
 
+_LOG_STREAM = None
+
+
+def install_process_logging():
+    """
+    Capture output from the detached Python process.
+    """
+    global _LOG_STREAM
+
+    if _LOG_STREAM:
+        return
+
+    log_root = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Shotgun", "Logs")
+    try:
+        if not os.path.exists(log_root):
+            os.makedirs(log_root)
+
+        log_path = os.path.join(log_root, "tk-harmony.log")
+        _LOG_STREAM = open(log_path, "a", buffering=1)
+        sys.stdout = _LOG_STREAM
+        sys.stderr = _LOG_STREAM
+        print("\n--- tk-harmony bootstrap starting ---")
+    except Exception:
+        _LOG_STREAM = None
+
+
+def log_uncaught_exception(exc_type, exc_value, exc_traceback):
+    traceback.print_exception(exc_type, exc_value, exc_traceback)
+
+
 def display_error(msg, logger=None):
     if logger:
         logger.error("Shotgun Error | Harmony engine | %s " % msg)
@@ -130,13 +160,25 @@ def start_toolkit():
 
 
 def setup_environment():
-    SGTK_HARMONY_MODULE_PATH = os.environ["SGTK_HARMONY_MODULE_PATH"]
-
+    # Try to get the module path from environment, fall back to sgtk import
+    SGTK_HARMONY_MODULE_PATH = os.environ.get("SGTK_HARMONY_MODULE_PATH")
+    
+    if not SGTK_HARMONY_MODULE_PATH:
+        # If not provided, try to import sgtk and get its path
+        try:
+            import sgtk
+            SGTK_HARMONY_MODULE_PATH = os.path.dirname(sgtk.__file__)
+        except ImportError:
+            # Last resort: assume sgtk is in standard Python path
+            SGTK_HARMONY_MODULE_PATH = None
+    
     if SGTK_HARMONY_MODULE_PATH and SGTK_HARMONY_MODULE_PATH not in sys.path:
         sys.path.insert(0, SGTK_HARMONY_MODULE_PATH)
 
 
 if __name__ == "__main__":
     # Fire up Toolkit and the environment engine when there's time.
+    install_process_logging()
+    sys.excepthook = log_uncaught_exception
     setup_environment()
     start_toolkit()

@@ -110,9 +110,6 @@ class QTcpSocketClient(QtCore.QObject):
 
         return result
 
-    def _on_readyRead(self):
-        logger.warning("Ready to read")
-
     def _on_error(self):
         logger.debug("Error occurred: %s" % self.connection.errorString())
 
@@ -127,8 +124,8 @@ class QTcpSocketClient(QtCore.QObject):
         logger.debug("Connection: %s" % self.connection)
 
         logger.debug("Setting up callbacks...")
-        self.connection.setSocketOption(self.connection.LowDelayOption, 1)
-        self.connection.setSocketOption(self.connection.KeepAliveOption, 1)
+        self._set_socket_option("LowDelayOption", 1)
+        self._set_socket_option("KeepAliveOption", 1)
 
         self.connection.readyRead.connect(self._on_ready_read)
         self.connection.error.connect(self._on_error)
@@ -136,6 +133,21 @@ class QTcpSocketClient(QtCore.QObject):
         self.connection.stateChanged.connect(self._on_state_changed)
 
         logger.debug("Setting up callbacks... Done.")
+
+    def _set_socket_option(self, option_name, value):
+        option = getattr(self.connection, option_name, None)
+        if option is None:
+            socket_option_enum = getattr(QtNetwork.QAbstractSocket, "SocketOption", None)
+            if socket_option_enum is not None:
+                option = getattr(socket_option_enum, option_name, None)
+        if option is None:
+            option = getattr(QtNetwork.QAbstractSocket, option_name, None)
+
+        if option is None:
+            logger.debug("Socket option %s is not available in this Qt binding.", option_name)
+            return
+
+        self.connection.setSocketOption(option, value)
 
     def _send(self, request):
         # make sure we are connected
@@ -174,15 +186,15 @@ class QTcpSocketClient(QtCore.QObject):
                 self._block_size > 0 and self.connection.bytesAvailable() >= self._block_size
             ):
                 self._block_size = stream.readInt32()
-                # logger.debug(
-                #     "Reading data size for request %s in queue: %s"
-                #     % (i, self._block_size)
-                # )
 
             if self._block_size > 0 and self.connection.bytesAvailable() >= self._block_size:
                 data = stream.readRawData(self._block_size)
-                request = QtCore.QTextCodec.codecForMib(106).toUnicode(data)
-                # logger.debug("About to process request %s in queue: %s" % (i, request))
+
+                if isinstance(data, str):
+                    request = data
+                else:
+                    request = bytes(data).decode("utf-8", errors="replace")
+
                 self._process_request(request)
                 self._block_size = 0
                 i += 1

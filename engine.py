@@ -579,7 +579,7 @@ class HarmonyEngine(Engine):
         # Build a dictionary mapping app instance names to dictionaries of
         # commands they registered with the engine.
         app_instance_commands = {}
-        for (cmd_name, value) in self.commands.iteritems():
+        for (cmd_name, value) in self.commands.items():
             app_instance = value["properties"].get("app")
             if app_instance:
                 # Add entry 'command name: command function' to the command
@@ -609,7 +609,7 @@ class HarmonyEngine(Engine):
             else:
                 if not setting_cmd_name:
                     # Run all commands of the given app instance.
-                    for (cmd_name, command_function) in cmd_dict.iteritems():
+                    for (cmd_name, command_function) in cmd_dict.items():
                         msg = (
                             "%s startup running app '%s' command '%s'.",
                             self.name,
@@ -736,17 +736,9 @@ class HarmonyEngine(Engine):
         # the engine config says so. We do it here as we try to avoid
         # deffer querying the dcc app to the last minute, to give it time
         # to initialize.
-        self.logger.debug("on_show_menu called.")
-
-        self.warn_dcc_app_version()
-
-        menu_position = None
-        clicked_info = kwargs.get("clickedPosition")
-        if clicked_info:
-            menu_position = [clicked_info["x"], clicked_info["y"]]
-
-        self.logger.debug("on_show_menu | menu_position %s" % menu_position)
-        self.display_menu(pos=menu_position)
+        clicked_position = kwargs.get("clickedPosition")
+        self.logger.info("on_show_menu called. clickedPosition=%s", clicked_position)
+        self.display_menu(clicked_position)
 
     def on_new_project_created(self, **kwargs):
         path = kwargs.get("path")
